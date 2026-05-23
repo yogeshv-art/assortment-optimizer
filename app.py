@@ -140,7 +140,7 @@ if mapping_file and assort_file and stock_file:
 
                 required_sfg = [
                     'Article Code',
-                    'Colour Description',
+                    'Colour Code',
                     'Assortment Code',
                     'Unrestricted'
                 ]
