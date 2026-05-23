@@ -730,8 +730,6 @@ if mapping_file and assort_file and stock_file:
                             'Available SFG Stock':
                                 sfg_value,
 
-                            'Stock Allocation':
-                                alloc_str,
                         })
 
                         for size, req in asst_need.items():
@@ -841,8 +839,6 @@ if mapping_file and assort_file and stock_file:
                             'Available SFG Stock':
                                 sfg_value,
 
-                            'Stock Allocation':
-                                alloc_str,
                         })
 
             # =============================================================
