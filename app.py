@@ -110,6 +110,66 @@ def format_gap(gap_dict: dict) -> str:
         for s, q in sorted(gap_dict.items())
     )
 
+
+def get_sfg_stock(sfg_stock, article, colour, asst):
+
+    matched_sfg = sfg_stock[
+
+        (
+            sfg_stock['Article Code']
+            .astype(str)
+            .str.strip()
+            .str.upper()
+
+            ==
+
+            str(article)
+            .strip()
+            .upper()
+        )
+
+        &
+
+        (
+            sfg_stock['Colour Code']
+            .astype(str)
+            .str.strip()
+            .str.upper()
+
+            ==
+
+            str(colour)
+            .strip()
+            .upper()
+        )
+
+        &
+
+        (
+            sfg_stock['Assortment Code']
+            .astype(str)
+            .str.strip()
+            .str.upper()
+
+            ==
+
+            str(asst)
+            .strip()
+            .upper()
+        )
+    ]
+
+    if not matched_sfg.empty:
+
+        return int(
+            matched_sfg['Unrestricted']
+            .fillna(0)
+            .sum()
+        )
+
+    return "NA"
+
+
 # =====================================================================
 # MAIN ENGINE
 # =====================================================================
@@ -494,49 +554,16 @@ if mapping_file and assort_file and stock_file:
                             group_stock
                         )
 
-                        # OPTIONAL SFG CHECK
-
                         sfg_value = "NA"
 
                         if sfg_available:
 
-                            article = art_col.split('_')[0]
-
-                            colour = art_col.split('_')[1]
-
-                            matched_sfg = sfg_stock[
-
-                                (
-                                    sfg_stock['Article Code']
-                                    .astype(str)
-                                    == str(article)
-                                )
-
-                                &
-
-                                (
-                                    sfg_stock['Colour Code']
-                                    .astype(str)
-                                    == str(colour)
-                                )
-
-                                &
-
-                                (
-                                    sfg_stock['Assortment Code']
-                                    .astype(str)
-                                    == str(asst)
-                                )
-                            ]
-
-                            if not matched_sfg.empty:
-
-                                sfg_value = int(
-
-                                    matched_sfg['Unrestricted']
-                                    .fillna(0)
-                                    .sum()
-                                )
+                            sfg_value = get_sfg_stock(
+                                sfg_stock,
+                                art_col.split('_')[0],
+                                art_col.split('_')[1],
+                                asst
+                            )
 
                         results.append({
 
@@ -654,49 +681,16 @@ if mapping_file and assort_file and stock_file:
                             if opt_gap else 'NA'
                         )
 
-                        # OPTIONAL SFG CHECK
-
                         sfg_value = "NA"
 
                         if sfg_available:
 
-                            article = art_col.split('_')[0]
-
-                            colour = art_col.split('_')[1]
-
-                            matched_sfg = sfg_stock[
-
-                                (
-                                    sfg_stock['Article Code']
-                                    .astype(str)
-                                    == str(article)
-                                )
-
-                                &
-
-                                (
-                                    sfg_stock['Colour Code']
-                                    .astype(str)
-                                    == str(colour)
-                                )
-
-                                &
-
-                                (
-                                    sfg_stock['Assortment Code']
-                                    .astype(str)
-                                    == str(asst)
-                                )
-                            ]
-
-                            if not matched_sfg.empty:
-
-                                sfg_value = int(
-
-                                    matched_sfg['Unrestricted']
-                                    .fillna(0)
-                                    .sum()
-                                )
+                            sfg_value = get_sfg_stock(
+                                sfg_stock,
+                                art_col.split('_')[0],
+                                art_col.split('_')[1],
+                                asst
+                            )
 
                         results.append({
 
@@ -798,49 +792,16 @@ if mapping_file and assort_file and stock_file:
                             if alt_gap else 'NA'
                         )
 
-                        # OPTIONAL SFG CHECK
-
                         sfg_value = "NA"
 
                         if sfg_available:
 
-                            article = art_col.split('_')[0]
-
-                            colour = art_col.split('_')[1]
-
-                            matched_sfg = sfg_stock[
-
-                                (
-                                    sfg_stock['Article Code']
-                                    .astype(str)
-                                    == str(article)
-                                )
-
-                                &
-
-                                (
-                                    sfg_stock['Colour Code']
-                                    .astype(str)
-                                    == str(colour)
-                                )
-
-                                &
-
-                                (
-                                    sfg_stock['Assortment Code']
-                                    .astype(str)
-                                    == str(asst)
-                                )
-                            ]
-
-                            if not matched_sfg.empty:
-
-                                sfg_value = int(
-
-                                    matched_sfg['Unrestricted']
-                                    .fillna(0)
-                                    .sum()
-                                )
+                            sfg_value = get_sfg_stock(
+                                sfg_stock,
+                                art_col.split('_')[0],
+                                art_col.split('_')[1],
+                                asst
+                            )
 
                         results.append({
 
