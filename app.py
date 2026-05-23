@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from scipy.optimize import milp, LinearConstraint, Bounds
+import io
 
 # ============================================================
 # PAGE CONFIG
@@ -14,31 +15,31 @@ st.set_page_config(
 )
 
 st.title("📦 Loose to Pack - Loose Pair Reduction")
-st.caption("Production Planning + Inventory Utilization + Assortment Recommendation")
+st.caption("Production Planning + Inventory Utilization + SFG Visibility")
 
 # ============================================================
-# SIDEBAR FILE UPLOADS
+# SIDEBAR
 # ============================================================
 
 st.sidebar.header("Upload Files")
 
 mapping_file = st.sidebar.file_uploader(
-    "Upload Article_Color_Assort_Mapping.csv",
+    "Article_Color_Assort_Mapping.csv",
     type=["csv"]
 )
 
 assort_file = st.sidebar.file_uploader(
-    "Upload Assort_Code_Master.csv",
+    "Assort_Code_Master.csv",
     type=["csv"]
 )
 
 stock_file = st.sidebar.file_uploader(
-    "Upload Current_Pairs_Stock.csv",
+    "Current_Pairs_Stock.csv",
     type=["csv"]
 )
 
-fg_stock_file = st.sidebar.file_uploader(
-    "Upload FG Stock File (Optional)",
+sfg_file = st.sidebar.file_uploader(
+    "SFG_Stock.csv",
     type=["csv"]
 )
 
@@ -46,50 +47,7 @@ fg_stock_file = st.sidebar.file_uploader(
 # HELPER FUNCTIONS
 # ============================================================
 
-def allocate_from_locations(size_need: dict, loc_stock_df: pd.DataFrame):
-
-    pool = {}
-
-    for _, row in loc_stock_df.iterrows():
-        key = (row['Location'], row['Size'])
-        pool[key] = pool.get(key, 0) + int(row['Qty'])
-
-    remaining_need = {s: q for s, q in size_need.items() if q > 0}
-
-    allocation = {}
-
-    for (loc, size), avail in sorted(pool.items()):
-
-        if size not in remaining_need:
-            continue
-
-        needed = remaining_need[size]
-
-        take = min(avail, needed)
-
-        if take > 0:
-
-            allocation[(loc, size)] = take
-
-            remaining_need[size] -= take
-
-            if remaining_need[size] == 0:
-                del remaining_need[size]
-
-    loc_groups = {}
-
-    for (loc, size), qty in sorted(allocation.items()):
-        loc_groups.setdefault(loc, []).append(f"Size {size}={qty}")
-
-    allocation_str = " | ".join(
-        f"{loc}: {', '.join(parts)}"
-        for loc, parts in sorted(loc_groups.items())
-    ) if loc_groups else "—"
-
-    return allocation_str, remaining_need
-
-
-def format_gap(gap_dict: dict) -> str:
+def format_gap(gap_dict):
 
     if not gap_dict:
         return "—"
@@ -103,7 +61,7 @@ def format_gap(gap_dict: dict) -> str:
 # MAIN ENGINE
 # ============================================================
 
-if mapping_file and assort_file and stock_file:
+if mapping_file and assort_file and stock_file and sfg_file:
 
     try:
 
@@ -116,83 +74,20 @@ if mapping_file and assort_file and stock_file:
             mapping = pd.read_csv(mapping_file)
             assort_master = pd.read_csv(assort_file)
             stock = pd.read_csv(stock_file)
-
-            # ====================================================
-            # FG STOCK LOAD
-            # ====================================================
-
-            fg_stock = None
-            fg_lookup = {}
-
-            if fg_stock_file is not None:
-
-                fg_stock = pd.read_csv(fg_stock_file)
-
-                required_fg = [
-                    'Article Code',
-                    'Assortment Size',
-                    'Unrestricted'
-                ]
-
-                missing_fg = [
-                    c for c in required_fg
-                    if c not in fg_stock.columns
-                ]
-
-                if missing_fg:
-                    st.error(f"Missing FG Stock Columns: {missing_fg}")
-                    st.stop()
-
-                fg_stock = fg_stock.rename(columns={
-                    'Article Code': 'Article',
-                    'Assortment Size': 'Size',
-                    'Unrestricted': 'Qty'
-                })
-
-                fg_stock['Size'] = pd.to_numeric(
-                    fg_stock['Size'],
-                    errors='coerce'
-                ).fillna(0).astype(int)
-
-                fg_stock['Qty'] = pd.to_numeric(
-                    fg_stock['Qty'],
-                    errors='coerce'
-                ).fillna(0).astype(int)
-
-                fg_stock = fg_stock[
-                    fg_stock['Qty'] > 0
-                ]
-
-                for (article, size), grp in fg_stock.groupby(
-                    ['Article', 'Size']
-                ):
-
-                    fg_lookup[
-                        (str(article), int(size))
-                    ] = grp['Qty'].sum()
+            sfg_stock = pd.read_csv(sfg_file)
 
             # ====================================================
             # VALIDATION
             # ====================================================
 
-            required_mapping = [
-                'Article',
-                'Colour',
-                'Assortment'
-            ]
+            required_mapping = ['Article', 'Colour', 'Assortment']
+            required_assort = ['ASST CODE', 'Size', 'Qty']
+            required_stock = ['Article Code', 'Colour Code', 'Size', 'Qty', 'Location']
 
-            required_assort = [
-                'ASST CODE',
-                'Size',
-                'Qty'
-            ]
-
-            required_stock = [
+            required_sfg = [
                 'Article Code',
-                'Colour Code',
-                'Size',
-                'Qty',
-                'Location'
+                'Assortment Size',
+                'Unrestricted'
             ]
 
             missing_mapping = [
@@ -210,6 +105,11 @@ if mapping_file and assort_file and stock_file:
                 if c not in stock.columns
             ]
 
+            missing_sfg = [
+                c for c in required_sfg
+                if c not in sfg_stock.columns
+            ]
+
             if missing_mapping:
                 st.error(f"Missing Mapping Columns: {missing_mapping}")
                 st.stop()
@@ -222,15 +122,38 @@ if mapping_file and assort_file and stock_file:
                 st.error(f"Missing Stock Columns: {missing_stock}")
                 st.stop()
 
+            if missing_sfg:
+                st.error(f"Missing SFG Columns: {missing_sfg}")
+                st.stop()
+
             # ====================================================
             # PREPROCESSING
             # ====================================================
 
             assort_master['Qty'] = assort_master['Qty'].fillna(0).astype(int)
-
             assort_master['Size'] = assort_master['Size'].astype(int)
 
             stock['Size'] = stock['Size'].astype(int)
+
+            sfg_stock = sfg_stock.rename(columns={
+                'Article Code': 'SFG Article',
+                'Assortment Size': 'Size',
+                'Unrestricted': 'SFG Stock'
+            })
+
+            sfg_stock['Size'] = pd.to_numeric(
+                sfg_stock['Size'],
+                errors='coerce'
+            ).fillna(0).astype(int)
+
+            sfg_stock['SFG Stock'] = pd.to_numeric(
+                sfg_stock['SFG Stock'],
+                errors='coerce'
+            ).fillna(0).astype(int)
+
+            sfg_stock = sfg_stock[
+                sfg_stock['SFG Stock'] > 0
+            ]
 
             mapping['Art_Col'] = (
                 mapping['Article'].astype(str)
@@ -256,7 +179,7 @@ if mapping_file and assort_file and stock_file:
             }
 
             # ====================================================
-            # KPI DASHBOARD
+            # DASHBOARD METRICS
             # ====================================================
 
             total_articles = mapping['Art_Col'].nunique()
@@ -265,20 +188,9 @@ if mapping_file and assort_file and stock_file:
 
             col1, col2, col3 = st.columns(3)
 
-            col1.metric(
-                "Total Article-Colour",
-                total_articles
-            )
-
-            col2.metric(
-                "Total Pairs Stock",
-                f"{int(total_stock):,}"
-            )
-
-            col3.metric(
-                "Total Locations",
-                total_locations
-            )
+            col1.metric("Total Article-Colour", total_articles)
+            col2.metric("Total Pairs Stock", f"{int(total_stock):,}")
+            col3.metric("Total Locations", total_locations)
 
             # ====================================================
             # CORE ENGINE
@@ -292,9 +204,7 @@ if mapping_file and assort_file and stock_file:
 
             for i, (art_col, group) in enumerate(groups):
 
-                progress_bar.progress(
-                    (i + 1) / len(groups)
-                )
+                progress_bar.progress((i + 1) / len(groups))
 
                 valid_assts = [
                     a for a in group['Assortment'].unique()
@@ -308,9 +218,7 @@ if mapping_file and assort_file and stock_file:
                     stock['Art_Col'] == art_col
                 ]
 
-                stock_map = group_stock.groupby(
-                    'Size'
-                )['Qty'].sum().to_dict()
+                stock_map = group_stock.groupby('Size')['Qty'].sum().to_dict()
 
                 all_sizes = sorted(
                     list(
@@ -329,7 +237,7 @@ if mapping_file and assort_file and stock_file:
                 }
 
                 # ====================================================
-                # MILP
+                # MILP OPTIMIZATION
                 # ====================================================
 
                 n_vars = len(valid_assts)
@@ -371,9 +279,7 @@ if mapping_file and assort_file and stock_file:
 
                 for j, asst in enumerate(valid_assts):
 
-                    p_size = sum(
-                        asst_lookup[asst].values()
-                    )
+                    p_size = sum(asst_lookup[asst].values())
 
                     asst_need = asst_lookup[asst]
 
@@ -381,9 +287,7 @@ if mapping_file and assort_file and stock_file:
 
                     for size, req in asst_need.items():
 
-                        avail = optimized_pool[
-                            size_idx[size]
-                        ]
+                        avail = optimized_pool[size_idx[size]]
 
                         if avail < req:
                             gap[size] = int(req - avail)
@@ -391,22 +295,13 @@ if mapping_file and assort_file and stock_file:
                     produce_str = format_gap(gap)
 
                     # ================================================
-                    # FG STOCK CHECK
+                    # SFG STOCK CHECK
                     # ================================================
 
-                    fg_status = "No FG Data"
-                    fg_adjusted = produce_str
+                    sfg_article_list = []
+                    sfg_stock_list = []
 
-                    if (
-                        fg_stock is not None
-                        and produce_str != '—'
-                    ):
-
-                        article = str(
-                            art_col.split('_')[0]
-                        )
-
-                        needed = {}
+                    if produce_str != '—':
 
                         for item in produce_str.split(","):
 
@@ -415,50 +310,34 @@ if mapping_file and assort_file and stock_file:
                             size_part, qty_part = item.split(":")
 
                             size = int(
-                                size_part.replace(
-                                    "Size", ""
-                                ).strip()
+                                size_part.replace("Size", "").strip()
                             )
 
-                            qty = int(
-                                qty_part.replace(
-                                    "+", ""
-                                ).strip()
-                            )
+                            matched_rows = sfg_stock[
+                                sfg_stock['Size'] == size
+                            ]
 
-                            needed[size] = qty
+                            if not matched_rows.empty:
 
-                        remaining_fg = {}
+                                for _, row in matched_rows.iterrows():
 
-                        for size, qty in needed.items():
+                                    sfg_article_list.append(
+                                        str(row['SFG Article'])
+                                    )
 
-                            available = fg_lookup.get(
-                                (article, size),
-                                0
-                            )
+                                    sfg_stock_list.append(
+                                        str(row['SFG Stock'])
+                                    )
 
-                            remaining_fg[size] = max(
-                                0,
-                                qty - available
-                            )
+                    sfg_articles = (
+                        ", ".join(sfg_article_list)
+                        if sfg_article_list else "—"
+                    )
 
-                        if all(
-                            v == 0
-                            for v in remaining_fg.values()
-                        ):
-
-                            fg_status = "FG Covers Fully"
-                            fg_adjusted = "—"
-
-                        else:
-
-                            fg_status = "Partial FG Available"
-
-                            fg_adjusted = ", ".join(
-                                f"Size {s}: +{q}"
-                                for s, q in remaining_fg.items()
-                                if q > 0
-                            )
+                    sfg_stocks = (
+                        ", ".join(sfg_stock_list)
+                        if sfg_stock_list else "—"
+                    )
 
                     # ================================================
                     # APPEND RESULTS
@@ -470,9 +349,9 @@ if mapping_file and assort_file and stock_file:
                         'Assortment': asst,
                         'Pack Size': p_size,
                         'Current Packs': int(current_packs[j]),
-                        'Produce (Size:Qty)': produce_str,
-                        'FG Status': fg_status,
-                        'Adjusted Production (After FG)': fg_adjusted
+                        'Production Needed': produce_str,
+                        'SFG Articles': sfg_articles,
+                        'SFG Stock Available': sfg_stocks
                     })
 
             # ====================================================
@@ -488,16 +367,14 @@ if mapping_file and assort_file and stock_file:
             st.dataframe(
                 final_df,
                 use_container_width=True,
-                height=600
+                height=650
             )
 
             # ====================================================
-            # DOWNLOAD
+            # DOWNLOAD BUTTON
             # ====================================================
 
-            csv = final_df.to_csv(
-                index=False
-            ).encode('utf-8')
+            csv = final_df.to_csv(index=False).encode('utf-8')
 
             st.download_button(
                 label="Download Optimization CSV",
@@ -514,6 +391,4 @@ if mapping_file and assort_file and stock_file:
 
 else:
 
-    st.info(
-        "Please upload all required CSV files to begin analysis."
-    )
+    st.info("Please upload all 4 CSV files to begin analysis.")
