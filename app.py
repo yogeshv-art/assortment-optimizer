@@ -515,7 +515,7 @@ if mapping_file and assort_file and stock_file:
                                 &
 
                                 (
-                                    sfg_stock['Colour Description']
+                                    sfg_stock['Colour Code']
                                     .astype(str)
                                     == str(colour)
                                 )
@@ -675,7 +675,7 @@ if mapping_file and assort_file and stock_file:
                                 &
 
                                 (
-                                    sfg_stock['Colour Description']
+                                    sfg_stock['Colour Code']
                                     .astype(str)
                                     == str(colour)
                                 )
@@ -819,7 +819,7 @@ if mapping_file and assort_file and stock_file:
                                 &
 
                                 (
-                                    sfg_stock['Colour Description']
+                                    sfg_stock['Colour Code']
                                     .astype(str)
                                     == str(colour)
                                 )
