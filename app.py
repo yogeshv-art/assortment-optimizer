@@ -161,11 +161,17 @@ def get_sfg_stock(sfg_stock, article, colour, asst):
 
     if not matched_sfg.empty:
 
-        return int(
+        clean_stock = pd.to_numeric(
+
             matched_sfg['Unrestricted']
-            .fillna(0)
-            .sum()
-        )
+            .astype(str)
+            .str.replace(',', '', regex=False),
+
+            errors='coerce'
+
+        ).fillna(0)
+
+        return int(clean_stock.sum())
 
     return "NA"
 
