@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from scipy.optimize import milp, LinearConstraint, Bounds
-import io
 
 # ============================================================
 # PAGE CONFIG
@@ -179,20 +178,6 @@ if mapping_file and assort_file and stock_file and sfg_file:
             }
 
             # ====================================================
-            # DASHBOARD METRICS
-            # ====================================================
-
-            total_articles = mapping['Art_Col'].nunique()
-            total_stock = stock['Qty'].sum()
-            total_locations = stock['Location'].nunique()
-
-            col1, col2, col3 = st.columns(3)
-
-            col1.metric("Total Article-Colour", total_articles)
-            col2.metric("Total Pairs Stock", f"{int(total_stock):,}")
-            col3.metric("Total Locations", total_locations)
-
-            # ====================================================
             # CORE ENGINE
             # ====================================================
 
@@ -355,12 +340,87 @@ if mapping_file and assort_file and stock_file and sfg_file:
                     })
 
             # ====================================================
-            # OUTPUT
+            # FINAL DATAFRAME
             # ====================================================
 
             final_df = pd.DataFrame(results)
 
-            st.success("Optimization Completed Successfully")
+            # ====================================================
+            # DASHBOARD
+            # ====================================================
+
+            st.markdown("## Operational Dashboard")
+
+            total_inventory = stock['Qty'].sum()
+
+            complete_packs = final_df['Current Packs'].sum()
+
+            pairs_consumed = (
+                final_df['Current Packs']
+                * final_df['Pack Size']
+            ).sum()
+
+            production_needed = 0
+            best_option_instances = 0
+            additional_pairs_unlockable = 0
+
+            for _, row in final_df.iterrows():
+
+                if row['Production Needed'] != '—':
+
+                    best_option_instances += 1
+
+                    additional_pairs_unlockable += row['Pack Size']
+
+                    for item in row['Production Needed'].split(","):
+
+                        item = item.strip()
+
+                        qty = int(
+                            item.split(":")[1]
+                            .replace("+", "")
+                            .strip()
+                        )
+
+                        production_needed += qty
+
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric(
+                "Total Inventory",
+                f"{int(total_inventory):,} Pairs"
+            )
+
+            col2.metric(
+                "Complete Packs Possible",
+                f"{int(complete_packs):,}"
+            )
+
+            col3.metric(
+                "Pairs Consumed (Complete)",
+                f"{int(pairs_consumed):,}"
+            )
+
+            col4, col5, col6 = st.columns(3)
+
+            col4.metric(
+                "Best Option Instances",
+                f"{int(best_option_instances):,}"
+            )
+
+            col5.metric(
+                "Production Needed",
+                f"{int(production_needed):,} Pairs"
+            )
+
+            col6.metric(
+                "Additional Pairs Unlockable",
+                f"{int(additional_pairs_unlockable):,} Pairs"
+            )
+
+            # ====================================================
+            # OUTPUT TABLE
+            # ====================================================
 
             st.subheader("Optimization Results")
 
@@ -382,6 +442,8 @@ if mapping_file and assort_file and stock_file and sfg_file:
                 file_name="Scenario_Assortment_Plan.csv",
                 mime="text/csv"
             )
+
+            st.success("Optimization Completed Successfully")
 
     except Exception as e:
 
