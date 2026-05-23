@@ -14,7 +14,7 @@ st.set_page_config(
 )
 
 st.title("📦 Loose to Pack - Loose Pair Reduction")
-st.caption("Production Planning + Inventory Utilization + SFG Visibility")
+st.caption("Production Planning + Inventory Utilization + Optional SFG Visibility")
 
 # ============================================================
 # SIDEBAR
@@ -37,13 +37,15 @@ stock_file = st.sidebar.file_uploader(
     type=["csv"]
 )
 
+# OPTIONAL FILE
+
 sfg_file = st.sidebar.file_uploader(
-    "SFG_Stock.csv",
+    "SFG_Stock.csv (Optional)",
     type=["csv"]
 )
 
 # ============================================================
-# HELPER FUNCTIONS
+# HELPER FUNCTION
 # ============================================================
 
 def format_gap(gap_dict):
@@ -60,7 +62,7 @@ def format_gap(gap_dict):
 # MAIN ENGINE
 # ============================================================
 
-if mapping_file and assort_file and stock_file and sfg_file:
+if mapping_file and assort_file and stock_file:
 
     try:
 
@@ -73,20 +75,58 @@ if mapping_file and assort_file and stock_file and sfg_file:
             mapping = pd.read_csv(mapping_file)
             assort_master = pd.read_csv(assort_file)
             stock = pd.read_csv(stock_file)
-            sfg_stock = pd.read_csv(sfg_file)
+
+            # ====================================================
+            # OPTIONAL SFG FILE
+            # ====================================================
+
+            sfg_available = False
+
+            if sfg_file is not None:
+
+                sfg_stock = pd.read_csv(sfg_file)
+
+                required_sfg = [
+                    'Article Code',
+                    'Colour Description',
+                    'Assortment Code',
+                    'Unrestricted'
+                ]
+
+                missing_sfg = [
+                    c for c in required_sfg
+                    if c not in sfg_stock.columns
+                ]
+
+                if missing_sfg:
+
+                    st.error(f"Missing SFG Columns: {missing_sfg}")
+                    st.stop()
+
+                sfg_available = True
 
             # ====================================================
             # VALIDATION
             # ====================================================
 
-            required_mapping = ['Article', 'Colour', 'Assortment']
-            required_assort = ['ASST CODE', 'Size', 'Qty']
-            required_stock = ['Article Code', 'Colour Code', 'Size', 'Qty', 'Location']
+            required_mapping = [
+                'Article',
+                'Colour',
+                'Assortment'
+            ]
 
-            required_sfg = [
+            required_assort = [
+                'ASST CODE',
+                'Size',
+                'Qty'
+            ]
+
+            required_stock = [
                 'Article Code',
-                'Assortment Size',
-                'Unrestricted'
+                'Colour Code',
+                'Size',
+                'Qty',
+                'Location'
             ]
 
             missing_mapping = [
@@ -104,11 +144,6 @@ if mapping_file and assort_file and stock_file and sfg_file:
                 if c not in stock.columns
             ]
 
-            missing_sfg = [
-                c for c in required_sfg
-                if c not in sfg_stock.columns
-            ]
-
             if missing_mapping:
                 st.error(f"Missing Mapping Columns: {missing_mapping}")
                 st.stop()
@@ -121,38 +156,25 @@ if mapping_file and assort_file and stock_file and sfg_file:
                 st.error(f"Missing Stock Columns: {missing_stock}")
                 st.stop()
 
-            if missing_sfg:
-                st.error(f"Missing SFG Columns: {missing_sfg}")
-                st.stop()
-
             # ====================================================
             # PREPROCESSING
             # ====================================================
 
-            assort_master['Qty'] = assort_master['Qty'].fillna(0).astype(int)
-            assort_master['Size'] = assort_master['Size'].astype(int)
+            assort_master['Qty'] = (
+                assort_master['Qty']
+                .fillna(0)
+                .astype(int)
+            )
 
-            stock['Size'] = stock['Size'].astype(int)
+            assort_master['Size'] = (
+                assort_master['Size']
+                .astype(int)
+            )
 
-            sfg_stock = sfg_stock.rename(columns={
-                'Article Code': 'SFG Article',
-                'Assortment Size': 'Size',
-                'Unrestricted': 'SFG Stock'
-            })
-
-            sfg_stock['Size'] = pd.to_numeric(
-                sfg_stock['Size'],
-                errors='coerce'
-            ).fillna(0).astype(int)
-
-            sfg_stock['SFG Stock'] = pd.to_numeric(
-                sfg_stock['SFG Stock'],
-                errors='coerce'
-            ).fillna(0).astype(int)
-
-            sfg_stock = sfg_stock[
-                sfg_stock['SFG Stock'] > 0
-            ]
+            stock['Size'] = (
+                stock['Size']
+                .astype(int)
+            )
 
             mapping['Art_Col'] = (
                 mapping['Article'].astype(str)
@@ -166,14 +188,22 @@ if mapping_file and assort_file and stock_file and sfg_file:
                 + stock['Colour Code'].astype(str)
             )
 
-            valid_keys = set(mapping['Art_Col'].unique())
+            valid_keys = set(
+                mapping['Art_Col'].unique()
+            )
 
             stock = stock[
                 stock['Art_Col'].isin(valid_keys)
             ]
 
+            # ====================================================
+            # ASSORTMENT LOOKUP
+            # ====================================================
+
             asst_lookup = {
+
                 code: grp.set_index('Size')['Qty'].to_dict()
+
                 for code, grp in assort_master.groupby('ASST CODE')
             }
 
@@ -183,16 +213,22 @@ if mapping_file and assort_file and stock_file and sfg_file:
 
             results = []
 
-            groups = list(mapping.groupby('Art_Col'))
+            groups = list(
+                mapping.groupby('Art_Col')
+            )
 
             progress_bar = st.progress(0)
 
             for i, (art_col, group) in enumerate(groups):
 
-                progress_bar.progress((i + 1) / len(groups))
+                progress_bar.progress(
+                    (i + 1) / len(groups)
+                )
 
                 valid_assts = [
+
                     a for a in group['Assortment'].unique()
+
                     if a in asst_lookup
                 ]
 
@@ -203,36 +239,54 @@ if mapping_file and assort_file and stock_file and sfg_file:
                     stock['Art_Col'] == art_col
                 ]
 
-                stock_map = group_stock.groupby('Size')['Qty'].sum().to_dict()
+                stock_map = (
+                    group_stock
+                    .groupby('Size')['Qty']
+                    .sum()
+                    .to_dict()
+                )
 
                 all_sizes = sorted(
+
                     list(
-                        set(stock_map.keys()) |
+
+                        set(stock_map.keys())
+
+                        |
+
                         {
                             s
+
                             for a in valid_assts
+
                             for s in asst_lookup[a].keys()
                         }
                     )
                 )
 
                 size_idx = {
+
                     s: i
+
                     for i, s in enumerate(all_sizes)
                 }
 
-                # ====================================================
+                # ================================================
                 # MILP OPTIMIZATION
-                # ====================================================
+                # ================================================
 
                 n_vars = len(valid_assts)
 
                 c = -np.ones(n_vars)
 
-                A = np.zeros((len(all_sizes), n_vars))
+                A = np.zeros(
+                    (len(all_sizes), n_vars)
+                )
 
                 b_u = np.array([
+
                     stock_map.get(s, 0)
+
                     for s in all_sizes
                 ])
 
@@ -243,14 +297,20 @@ if mapping_file and assort_file and stock_file and sfg_file:
                         A[size_idx[size], j] = qty
 
                 res = milp(
+
                     c=c,
+
                     constraints=LinearConstraint(A, 0, b_u),
+
                     integrality=np.ones(n_vars),
+
                     bounds=Bounds(0, np.inf)
                 )
 
                 current_packs = (
+
                     res.x if res.success
+
                     else np.zeros(n_vars)
                 )
 
@@ -258,13 +318,15 @@ if mapping_file and assort_file and stock_file and sfg_file:
 
                 optimized_pool = b_u - used_stock
 
-                # ====================================================
+                # ================================================
                 # RESULT GENERATION
-                # ====================================================
+                # ================================================
 
                 for j, asst in enumerate(valid_assts):
 
-                    p_size = sum(asst_lookup[asst].values())
+                    p_size = sum(
+                        asst_lookup[asst].values()
+                    )
 
                     asst_need = asst_lookup[asst]
 
@@ -272,71 +334,92 @@ if mapping_file and assort_file and stock_file and sfg_file:
 
                     for size, req in asst_need.items():
 
-                        avail = optimized_pool[size_idx[size]]
+                        avail = optimized_pool[
+                            size_idx[size]
+                        ]
 
                         if avail < req:
+
                             gap[size] = int(req - avail)
 
                     produce_str = format_gap(gap)
 
-                    # ================================================
-                    # SFG STOCK CHECK
-                    # ================================================
+                    # ============================================
+                    # OPTIONAL SFG MATCHING
+                    # ============================================
 
-                    sfg_article_list = []
-                    sfg_stock_list = []
+                    sfg_stock_value = "—"
 
-                    if produce_str != '—':
+                    if (
+                        sfg_available
+                        and produce_str != '—'
+                    ):
 
-                        for item in produce_str.split(","):
+                        article = art_col.split('_')[0]
 
-                            item = item.strip()
+                        colour = art_col.split('_')[1]
 
-                            size_part, qty_part = item.split(":")
+                        matched_sfg = sfg_stock[
 
-                            size = int(
-                                size_part.replace("Size", "").strip()
+                            (
+                                sfg_stock['Article Code']
+                                .astype(str)
+                                == str(article)
                             )
 
-                            matched_rows = sfg_stock[
-                                sfg_stock['Size'] == size
-                            ]
+                            &
 
-                            if not matched_rows.empty:
+                            (
+                                sfg_stock['Colour Description']
+                                .astype(str)
+                                == str(colour)
+                            )
 
-                                for _, row in matched_rows.iterrows():
+                            &
 
-                                    sfg_article_list.append(
-                                        str(row['SFG Article'])
-                                    )
+                            (
+                                sfg_stock['Assortment Code']
+                                .astype(str)
+                                == str(asst)
+                            )
+                        ]
 
-                                    sfg_stock_list.append(
-                                        str(row['SFG Stock'])
-                                    )
+                        if not matched_sfg.empty:
 
-                    sfg_articles = (
-                        ", ".join(sfg_article_list)
-                        if sfg_article_list else "—"
-                    )
+                            total_sfg = (
+                                matched_sfg['Unrestricted']
+                                .fillna(0)
+                                .sum()
+                            )
 
-                    sfg_stocks = (
-                        ", ".join(sfg_stock_list)
-                        if sfg_stock_list else "—"
-                    )
+                            sfg_stock_value = int(total_sfg)
 
-                    # ================================================
+                    # ============================================
                     # APPEND RESULTS
-                    # ================================================
+                    # ============================================
 
                     results.append({
-                        'Article': art_col.split('_')[0],
-                        'Colour': art_col.split('_')[1],
-                        'Assortment': asst,
-                        'Pack Size': p_size,
-                        'Current Packs': int(current_packs[j]),
-                        'Production Needed': produce_str,
-                        'SFG Articles': sfg_articles,
-                        'SFG Stock Available': sfg_stocks
+
+                        'Article':
+                            art_col.split('_')[0],
+
+                        'Colour':
+                            art_col.split('_')[1],
+
+                        'Assortment':
+                            asst,
+
+                        'Pack Size':
+                            p_size,
+
+                        'Current Packs':
+                            int(current_packs[j]),
+
+                        'Production Needed':
+                            produce_str,
+
+                        'Available SFG Stock':
+                            sfg_stock_value
                     })
 
             # ====================================================
@@ -353,15 +436,22 @@ if mapping_file and assort_file and stock_file and sfg_file:
 
             total_inventory = stock['Qty'].sum()
 
-            complete_packs = final_df['Current Packs'].sum()
+            complete_packs = (
+                final_df['Current Packs']
+                .sum()
+            )
 
             pairs_consumed = (
+
                 final_df['Current Packs']
                 * final_df['Pack Size']
+
             ).sum()
 
             production_needed = 0
+
             best_option_instances = 0
+
             additional_pairs_unlockable = 0
 
             for _, row in final_df.iterrows():
@@ -377,6 +467,7 @@ if mapping_file and assort_file and stock_file and sfg_file:
                         item = item.strip()
 
                         qty = int(
+
                             item.split(":")[1]
                             .replace("+", "")
                             .strip()
@@ -419,13 +510,37 @@ if mapping_file and assort_file and stock_file and sfg_file:
             )
 
             # ====================================================
+            # FILTERS
+            # ====================================================
+
+            st.subheader("Filters")
+
+            prod_filter = st.selectbox(
+                "Show Records",
+                [
+                    "All",
+                    "Only Production Needed"
+                ]
+            )
+
+            if prod_filter == "Only Production Needed":
+
+                display_df = final_df[
+                    final_df['Production Needed'] != '—'
+                ]
+
+            else:
+
+                display_df = final_df
+
+            # ====================================================
             # OUTPUT TABLE
             # ====================================================
 
             st.subheader("Optimization Results")
 
             st.dataframe(
-                final_df,
+                display_df,
                 use_container_width=True,
                 height=650
             )
@@ -434,7 +549,11 @@ if mapping_file and assort_file and stock_file and sfg_file:
             # DOWNLOAD BUTTON
             # ====================================================
 
-            csv = final_df.to_csv(index=False).encode('utf-8')
+            csv = (
+                display_df
+                .to_csv(index=False)
+                .encode('utf-8')
+            )
 
             st.download_button(
                 label="Download Optimization CSV",
@@ -443,7 +562,9 @@ if mapping_file and assort_file and stock_file and sfg_file:
                 mime="text/csv"
             )
 
-            st.success("Optimization Completed Successfully")
+            st.success(
+                "Optimization Completed Successfully"
+            )
 
     except Exception as e:
 
@@ -453,4 +574,6 @@ if mapping_file and assort_file and stock_file and sfg_file:
 
 else:
 
-    st.info("Please upload all 4 CSV files to begin analysis.")
+    st.info(
+        "Please upload the first 3 mandatory CSV files."
+    )
